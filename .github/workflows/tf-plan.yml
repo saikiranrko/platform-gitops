@@ -56,7 +56,7 @@ jobs:
         id: plan
         run: |
           terraform plan \
-            -var="github_actions_sp_object_id=${{ secrets.GITHUB_ACTIONS_SP_OBJECT_ID }}" \
+            -var="github_actions_sp_object_id=${{ secrets.SP_OBJECT_ID }}" \
             -out=tfplan \
             -no-color 2>&1 | tee plan_output.txt
           echo "exitcode=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT

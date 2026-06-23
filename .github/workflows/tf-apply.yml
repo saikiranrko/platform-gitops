@@ -51,7 +51,7 @@ jobs:
       - name: Terraform Apply
         run: |
           terraform apply \
-            -var="github_actions_sp_object_id=${{ secrets.GITHUB_ACTIONS_SP_OBJECT_ID }}" \
+            -var="github_actions_sp_object_id=${{ secrets.SP_OBJECT_ID }}" \
             -auto-approve \
             -input=false
         env:
