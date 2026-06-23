@@ -37,7 +37,7 @@ resource "azurerm_key_vault" "main" {
 
   network_acls {
     default_action = "Allow"  # tighten to "Deny" + IP rules in production
-    bypass         = ["AzureServices"]
+    bypass         = "AzureServices"
   }
 
   tags = var.tags
