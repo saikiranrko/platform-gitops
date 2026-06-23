@@ -1,0 +1,48 @@
+# ArgoCD Application CR — tells ArgoCD what to deploy and where
+# Apply with: kubectl apply -f gitops/environments/dev/task-api/application.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: task-api-dev
+  namespace: argocd               # ArgoCD watches this namespace
+  labels:
+    environment: dev
+    team: platform
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io   # clean up k8s resources on delete
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/saikiranrko/platform-gitops
+    targetRevision: main
+    path: helm/task-api            # path to Helm chart in the repo
+    helm:
+      releaseName: task-api
+      valueFiles:
+        - ../../../../gitops/environments/dev/task-api/values-dev.yaml
+
+  destination:
+    server: https://kubernetes.default.svc   # in-cluster (ArgoCD runs on same cluster)
+    namespace: task-api-dev
+
+  syncPolicy:
+    automated:
+      prune: true        # remove resources deleted from git
+      selfHeal: true     # revert manual kubectl changes (GitOps discipline!)
+    syncOptions:
+      - CreateNamespace=true     # auto-create namespace if missing
+      - PrunePropagationPolicy=foreground
+    retry:
+      limit: 3
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+  # Health checks — ArgoCD waits for these before marking sync complete
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas    # ignore HPA-managed replica count

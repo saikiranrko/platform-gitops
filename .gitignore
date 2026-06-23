@@ -1,0 +1,30 @@
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfvars
+!example.tfvars
+.terraform.lock.hcl
+tfplan
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+.venv/
+
+# Secrets — NEVER commit these
+*.pem
+*.key
+*.env
+.env.*
+secrets.yaml
+kubeconfig
+
+# OS
+.DS_Store

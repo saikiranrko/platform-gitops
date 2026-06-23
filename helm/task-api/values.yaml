@@ -1,0 +1,106 @@
+# Default values — override per environment in gitops/environments/<env>/values-<env>.yaml
+
+replicaCount: 1
+
+image:
+  repository: saiacr001.azurecr.io/task-api   # updated by CI via sed
+  tag: latest
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8000
+
+ingress:
+  enabled: true
+  className: nginx                    # nginx ingress controller
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    cert-manager.io/cluster-issuer: letsencrypt-prod   # TLS (optional for dev)
+  hosts:
+    - host: task-api.local             # override in values-dev.yaml
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources:
+  # Cost-optimized: small requests, reasonable limits
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+autoscaling:
+  enabled: false       # enable HPA when load testing
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 70
+
+# Kubernetes health probes — match FastAPI endpoints
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: 8000
+  initialDelaySeconds: 10
+  periodSeconds: 15
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /readyz
+    port: 8000
+  initialDelaySeconds: 5
+  periodSeconds: 10
+
+# Prometheus scraping
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8000"
+  prometheus.io/path: "/metrics"
+
+# Security context — non-root container
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 2000
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+# Environment variables injected into the container
+env:
+  - name: APP_ENV
+    value: dev
+  - name: LOG_LEVEL
+    value: INFO
+
+# Secrets from Azure Key Vault via CSI driver
+keyVaultSecrets:
+  enabled: true
+  vaultName: sai-kv-001             # update if suffix differs
+  tenantId: ""                      # set in values-dev.yaml
+  userAssignedIdentityID: ""        # Workload Identity client ID
+  secrets:
+    - name: task-api-secret-key
+      alias: SECRET_KEY
+
+serviceAccount:
+  create: true
+  annotations:
+    azure.workload.identity/client-id: ""  # set in values-dev.yaml
+  name: "task-api"
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

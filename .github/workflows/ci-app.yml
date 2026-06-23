@@ -1,0 +1,183 @@
+name: CI — Build, Scan, Push
+
+on:
+  push:
+    branches: [main]
+    paths: ["apps/task-api/**"]
+  pull_request:
+    branches: [main]
+    paths: ["apps/task-api/**"]
+
+env:
+  APP: task-api
+  ACR_NAME: saiacr001          # change suffix if taken
+  ACR_LOGIN_SERVER: saiacr001.azurecr.io
+  AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+permissions:
+  id-token: write   # required for OIDC login
+  contents: read
+  security-events: write  # for uploading Trivy SARIF results
+
+jobs:
+  # -------------------------------------------------------------------------
+  # 1. Unit Tests + Lint
+  # -------------------------------------------------------------------------
+  test:
+    name: Test & Lint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/task-api
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Lint (ruff)
+        run: ruff check src/ tests/
+
+      - name: Type check (mypy)
+        run: mypy src/
+
+      - name: Unit tests
+        run: pytest tests/ -v --tb=short
+
+  # -------------------------------------------------------------------------
+  # 2. Security Scan with Trivy (IaC + filesystem)
+  # -------------------------------------------------------------------------
+  security-scan:
+    name: Trivy Security Scan
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Scan filesystem (secrets, misconfigs)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: sarif
+          output: trivy-fs.sarif
+          severity: HIGH,CRITICAL
+          exit-code: 1
+
+      - name: Upload Trivy SARIF to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-fs.sarif
+
+  # -------------------------------------------------------------------------
+  # 3. Checkov — IaC Policy Scan
+  # -------------------------------------------------------------------------
+  checkov:
+    name: Checkov IaC Scan
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Checkov on Terraform
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: terraform/
+          framework: terraform
+          output_format: sarif
+          output_file_path: checkov.sarif
+          soft_fail: true   # don't block on warnings, only critical
+
+      - name: Upload Checkov SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: checkov.sarif
+
+  # -------------------------------------------------------------------------
+  # 4. Build Docker image + push to ACR (only on push to main)
+  # -------------------------------------------------------------------------
+  build-and-push:
+    name: Build & Push to ACR
+    runs-on: ubuntu-latest
+    needs: [security-scan, checkov]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    outputs:
+      image_tag: ${{ steps.meta.outputs.version }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure OIDC Login (no static secrets!)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Log in to ACR
+        run: az acr login --name ${{ env.ACR_NAME }}
+
+      - name: Docker metadata (tags + labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.ACR_LOGIN_SERVER }}/${{ env.APP }}
+          tags: |
+            type=sha,prefix=,format=short
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: apps/task-api
+          push: false
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          load: true     # load into local daemon for Trivy scan
+
+      - name: Scan container image with Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.ACR_LOGIN_SERVER }}/${{ env.APP }}:latest
+          format: sarif
+          output: trivy-image.sarif
+          severity: CRITICAL
+          exit-code: 1
+
+      - name: Upload image scan SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-image.sarif
+
+      - name: Push to ACR
+        uses: docker/build-push-action@v5
+        with:
+          context: apps/task-api
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Update GitOps image tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE_TAG: ${{ steps.meta.outputs.version }}
+        run: |
+          # Update the image tag in the dev values override
+          sed -i "s|tag:.*|tag: ${IMAGE_TAG}|g" gitops/environments/dev/task-api/values-dev.yaml
+          git config user.email "ci@github.com"
+          git config user.name "GitHub Actions"
+          git add gitops/environments/dev/task-api/values-dev.yaml
+          git commit -m "chore: update task-api image to ${IMAGE_TAG} [skip ci]"
+          git push

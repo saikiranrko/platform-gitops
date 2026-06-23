@@ -1,0 +1,41 @@
+# Dev environment overrides — CI updates `image.tag` here on every push to main
+image:
+  repository: saiacr001.azurecr.io/task-api
+  tag: latest                 # CI replaces this with the commit SHA
+
+replicaCount: 1
+
+ingress:
+  enabled: true
+  hosts:
+    - host: task-api.dev.local
+      paths:
+        - path: /
+          pathType: Prefix
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 250m
+    memory: 128Mi
+
+env:
+  - name: APP_ENV
+    value: dev
+  - name: LOG_LEVEL
+    value: DEBUG
+
+# Workload Identity — fill in after running bootstrap.py
+keyVaultSecrets:
+  enabled: true
+  vaultName: sai-kv-001
+  tenantId: ""              # paste output of: az account show --query tenantId -o tsv
+  userAssignedIdentityID: ""  # paste output of: az identity show -n task-api-identity --query clientId -o tsv
+
+serviceAccount:
+  create: true
+  annotations:
+    azure.workload.identity/client-id: ""  # same as userAssignedIdentityID above
+  name: "task-api"

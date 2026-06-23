@@ -1,0 +1,68 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: task-api-rules
+  namespace: monitoring
+  labels:
+    app: kube-prometheus-stack           # Prometheus Operator selector label
+    release: prometheus
+spec:
+  groups:
+    - name: task-api.availability
+      interval: 30s
+      rules:
+        # Alert if no running pods
+        - alert: TaskApiDown
+          expr: |
+            sum(up{job="task-api"}) == 0
+          for: 1m
+          labels:
+            severity: critical
+            team: platform
+          annotations:
+            summary: "Task API is down"
+            description: "No healthy task-api instances have been up for more than 1 minute."
+
+        # Alert if error rate > 5% over 5 min window
+        - alert: TaskApiHighErrorRate
+          expr: |
+            rate(task_api_requests_total{status_code=~"5.."}[5m])
+            /
+            rate(task_api_requests_total[5m]) > 0.05
+          for: 2m
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "Task API error rate > 5%"
+            description: "Error rate is {{ $value | humanizePercentage }} over the last 5 minutes."
+
+    - name: task-api.latency
+      rules:
+        # P99 latency > 500ms
+        - alert: TaskApiHighLatency
+          expr: |
+            histogram_quantile(0.99,
+              sum(rate(task_api_request_duration_seconds_bucket[5m])) by (le)
+            ) > 0.5
+          for: 3m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Task API P99 latency > 500ms"
+            description: "P99 latency is {{ $value | humanizeDuration }}."
+
+    - name: kubernetes.resources
+      rules:
+        # Pod memory usage > 80% of limit
+        - alert: PodMemoryNearLimit
+          expr: |
+            container_memory_usage_bytes{namespace="task-api-dev", container="task-api"}
+            /
+            container_spec_memory_limit_bytes{namespace="task-api-dev", container="task-api"} > 0.8
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Pod memory usage > 80% of limit"
+            description: "Pod {{ $labels.pod }} is using {{ $value | humanizePercentage }} of its memory limit."
