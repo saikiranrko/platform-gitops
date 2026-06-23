@@ -1,48 +1,54 @@
-# ArgoCD Application CR — tells ArgoCD what to deploy and where
-# Apply with: kubectl apply -f gitops/environments/dev/task-api/application.yaml
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: task-api-dev
-  namespace: argocd               # ArgoCD watches this namespace
+  namespace: argocd
   labels:
     environment: dev
     team: platform
   finalizers:
-    - resources-finalizer.argocd.argoproj.io   # clean up k8s resources on delete
+    - resources-finalizer.argocd.argoproj.io
 spec:
   project: default
-
   source:
     repoURL: https://github.com/saikiranrko/platform-gitops
     targetRevision: main
-    path: helm/task-api            # path to Helm chart in the repo
+    path: helm/task-api
     helm:
       releaseName: task-api
-      valueFiles:
-        - ../../../../gitops/environments/dev/task-api/values-dev.yaml
-
+      valuesObject:
+        image:
+          repository: saiacr001.azurecr.io/task-api
+          tag: latest
+        replicaCount: 1
+        env:
+          - name: APP_ENV
+            value: dev
+          - name: LOG_LEVEL
+            value: DEBUG
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 250m
+            memory: 128Mi
+        keyVaultSecrets:
+          enabled: false
+        ingress:
+          enabled: false
   destination:
-    server: https://kubernetes.default.svc   # in-cluster (ArgoCD runs on same cluster)
+    server: https://kubernetes.default.svc
     namespace: task-api-dev
-
   syncPolicy:
     automated:
-      prune: true        # remove resources deleted from git
-      selfHeal: true     # revert manual kubectl changes (GitOps discipline!)
+      prune: true
+      selfHeal: true
     syncOptions:
-      - CreateNamespace=true     # auto-create namespace if missing
-      - PrunePropagationPolicy=foreground
+      - CreateNamespace=true
     retry:
       limit: 3
       backoff:
         duration: 5s
         factor: 2
         maxDuration: 3m
-
-  # Health checks — ArgoCD waits for these before marking sync complete
-  ignoreDifferences:
-    - group: apps
-      kind: Deployment
-      jsonPointers:
-        - /spec/replicas    # ignore HPA-managed replica count
