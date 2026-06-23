@@ -17,7 +17,7 @@ resource "azurerm_kubernetes_cluster" "main" {
   default_node_pool {
     name                = "system"
     node_count          = 1             # single node for dev/learning
-    vm_size             = "Standard_B2s" # 2 vCPU, 4GB RAM — ~$30/month
+    vm_size             = "Standard_D2s_v7" # 2 vCPU, 4GB RAM — ~$30/month
     vnet_subnet_id      = var.aks_subnet_id
     os_disk_size_gb     = 30            # minimum disk
     type                = "VirtualMachineScaleSets"
