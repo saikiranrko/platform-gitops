@@ -26,7 +26,6 @@ resource "azurerm_kubernetes_cluster" "main" {
     enable_auto_scaling = true
     min_count           = 1
     max_count           = 2
-    node_count          = null          # required when auto_scaling enabled
 
     upgrade_settings {
       max_surge = "10%"
