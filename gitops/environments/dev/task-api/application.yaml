@@ -37,6 +37,10 @@ spec:
           enabled: false
         ingress:
           enabled: false
+        serviceAccount:
+          create: true
+          annotations: {}
+          name: "task-api"
   destination:
     server: https://kubernetes.default.svc
     namespace: task-api-dev
